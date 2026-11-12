@@ -194,6 +194,12 @@ body.walk.touch #stick{display:block}
       <h2 style="margin-top:14px">Finish</h2><div class="fins" id="hwfin"></div>
       <p class="note" style="margin-top:8px">Type any hex code above for a custom finish.</p>
     </div>
+    <div id="bssec" hidden>
+      <h2>Tile pattern</h2><div class="chips" id="bsstyles"></div>
+      <h2 style="margin-top:14px">Tile colour</h2><div class="fins" id="bstiles"></div>
+      <h2 style="margin-top:14px">Grout</h2><div class="chips" id="bsgrout"></div>
+      <p class="note" style="margin-top:8px">Type any hex code above for a custom tile colour.</p>
+    </div>
     <div>
       <h2>Other surfaces</h2>
       <div class="chips" id="groups"></div>
@@ -405,8 +411,8 @@ const TOUR=[ // [x,y, lookx,looky]
 
 /* ===================== STATE ===================== */
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-const DEF={wall:'#F2F1ED',ext:'#8E9290',ceil:'#FBFBF9',trim:'#FFFFFF',cabinets:'#F3F3F1',counters:'#F6F6F4',frontDoor:'#3A3F45',garageDoor:'#F0F0ED'};
-const GROUPS=[['trim','Trim & casings'],['cabinets','Cabinets'],['counters','Countertops'],['frontDoor','Front door'],['garageDoor','Garage door']];
+const DEF={wall:'#F2F1ED',ext:'#8E9290',ceil:'#FBFBF9',trim:'#FFFFFF',cabinets:'#F3F3F1',counters:'#F6F6F4',backsplash:'#F4F5F4',frontDoor:'#3A3F45',garageDoor:'#F0F0ED'};
+const GROUPS=[['trim','Trim & casings'],['cabinets','Cabinets'],['counters','Countertops'],['backsplash','Backsplash'],['frontDoor','Front door'],['garageDoor','Garage door']];
 let mirrored=false, mode='doll', paint={faces:{},ceil:{},groups:{}}, undoS=[], redoS=[], lastSnap=0;
 const SAVE_KEY='fenway-paint-v1';
 try{const j=JSON.parse(localStorage.getItem(SAVE_KEY)||'null'); if(j&&j.paint){paint=j.paint; if(typeof j.mirrored==='boolean')mirrored=j.mirrored;}}catch(e){}
@@ -476,7 +482,7 @@ const M={
 };
 const GM={}; // paintable group materials
 function groupMat(id){if(!GM[id]){const m=new THREE.MeshStandardMaterial({color:paint.groups[id]||DEF[id],roughness:id==='cabinets'?.6:id==='counters'?.25:.7});
-  if(id==='garageDoor')m.map=TEX.garage; if(id==='frontDoor')m.roughness=.45; if(id==='counters'){m.roughness=.18}; GM[id]=m}return GM[id]}
+  if(id==='garageDoor')m.map=TEX.garage; if(id==='frontDoor')m.roughness=.45; if(id==='counters'){m.roughness=.18}; if(id==='backsplash'){m.roughness=.12;m.alphaTest=.5;m.alphaToCoverage=true;m.bumpScale=.8}; GM[id]=m}return GM[id]}
 const CM={}; function ceilMat(k){if(!CM[k])CM[k]=new THREE.MeshStandardMaterial({color:paint.ceil[k]||DEF.ceil,roughness:1,side:THREE.FrontSide});return CM[k]}
 const FM={}; // face materials
 const FACE_META={}; // id -> {id,wall,side,room,ext}
@@ -599,10 +605,39 @@ function buildHouse(){
   {const p=P(755,642);const wh=new THREE.Mesh(new THREE.CylinderGeometry(1.0,1.0,4.8,24),M.porcelain);wh.position.set(p.x,2.4,p.z);wh.castShadow=true;house.add(wh);colliders.push({x0:p.x-1,x1:p.x+1,z0:p.z-1,z1:p.z+1})}
   BOWLS.forEach(([bx,by])=>{const q=P(bx,by);const bw=new THREE.Mesh(new THREE.CylinderGeometry(.62,.55,.03,24),M.porcelain);bw.position.set(q.x,3.012,q.z);bw.receiveShadow=true;house.add(bw);
     const dr=new THREE.Mesh(new THREE.CylinderGeometry(.07,.07,.034,12),M.sink);dr.position.set(q.x,3.014,q.z);house.add(dr)});
-  hwGroup=new THREE.Group();house.add(hwGroup);buildCabDoors();rebuildHW();
+  hwGroup=new THREE.Group();house.add(hwGroup);buildCabDoors();rebuildHW();buildBacksplash();
   buildRoof(); buildSite(); buildLabels(); updateLights();
   if(!pickables.length)console.warn('no pickables');
 }
+
+/* ---- kitchen backsplash ---- */
+const BS_STYLES=[['subway','Subway'],['stacked','Stacked'],['vertical','Vertical stack'],['square','Square mosaic'],['penny','Penny round'],['slab','Solid slab']];
+const GROUTS=[['White','#F2F2F0'],['Light gray','#BDBDB9'],['Charcoal','#4A4B4D']];
+const TILES=[['White','#F4F5F4'],['Soft Gray','#C9CDCF'],['Sage','#A9B8A4'],['Sea Glass','#9CC3BE'],['Navy','#2F4458'],['Terracotta','#B86B4B'],['Cream','#EFE6D2'],['Black','#202224']];
+const bsGet=()=>Object.assign({s:'subway',g:'#F2F2F0'},paint.bs||{});
+const BSG=new THREE.MeshStandardMaterial({color:'#F2F2F0',roughness:.9});
+const BST={};
+function bsTex(style){
+  if(style==='slab')return null; if(BST[style])return BST[style];
+  const c=document.createElement('canvas');c.width=c.height=512;const g=c.getContext('2d');g.fillStyle='#000';g.fillRect(0,0,512,512);g.fillStyle='#fff';
+  if(style==='subway'||style==='stacked'){for(let r=0;r<8;r++){const off=style==='subway'?(r%2)*64:0;for(let x=-128+off;x<512;x+=128)g.fillRect(x+2,r*64+2,124,60)}}
+  else if(style==='vertical'){for(let cl=0;cl<8;cl++){const off=(cl%2)*64;for(let y=-128+off;y<512;y+=128)g.fillRect(cl*64+2,y+2,60,124)}}
+  else if(style==='square'){for(let i=0;i<16;i++)for(let j=0;j<16;j++)g.fillRect(i*32+2,j*32+2,28,28)}
+  else{for(let j=0;j<16;j++){const off=(j%2)*16;for(let i=-1;i<17;i++){g.beginPath();g.arc(i*32+16+off,j*32+16,13,0,Math.PI*2);g.fill()}}}
+  const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;t.anisotropy=8;BST[style]=t;return t}
+function bsApply(){const b=bsGet(),m=groupMat('backsplash'),t=bsTex(b.s);if(m.alphaMap!==t){m.alphaMap=t;m.bumpMap=t;m.needsUpdate=true}BSG.color.set(b.g)}
+function buildBacksplash(){
+  const wallX=P(922,0).x, nx=mirrored?1:-1, yaw=Math.atan2(nx,0), rz=-Math.sin(yaw);
+  bsApply();
+  [[258,340,3.05,4.9],[340,400,3.0,7.0],[400,480,3.05,4.9]].forEach(([y0,y1,e0,e1])=>{
+    const a=P(922,y0),b=P(922,y1),cz=(a.z+b.z)/2,cy=(e0+e1)/2,w=Math.abs(b.z-a.z),h=e1-e0;
+    [[.256,BSG,false],[.268,groupMat('backsplash'),true]].forEach(([off,mat,tile])=>{
+      const geo=new THREE.PlaneGeometry(w,h);
+      if(tile){const uv=geo.attributes.uv,pos=geo.attributes.position;for(let k=0;k<uv.count;k++)uv.setXY(k,(cz+pos.getX(k)*rz)/2,(cy+pos.getY(k))/2)}
+      const m=new THREE.Mesh(geo,mat);m.position.set(wallX+nx*off,cy,cz);m.rotation.y=yaw;m.receiveShadow=true;house.add(m);markGroup(m,'backsplash')})
+  });
+}
+function setBs(patch){pushUndo();paint.bs=Object.assign(bsGet(),patch);bsApply();persist();updateUI(true)}
 
 /* ---- cabinet doors, pulls and faucets ---- */
 const FINISHES=[['Brushed Nickel','#B9BBBD',.35],['Polished Chrome','#E3E6E8',.12],['Matte Black','#1F2022',.65],['Satin Brass','#C7A35A',.3],['Champagne Bronze','#B89F7E',.35],['Oil-Rubbed Bronze','#4B3B2E',.5],['Gunmetal','#5B6066',.4],['White','#F3F3F1',.5]];
@@ -729,7 +764,7 @@ function refreshMaterials(){
   Object.keys(FM).forEach(id=>FM[id].color.set(faceHex(id)));
   Object.keys(CM).forEach(k=>CM[k].color.set(paint.ceil[k]||DEF.ceil));
   Object.keys(GM).forEach(k=>GM[k].color.set(paint.groups[k]||DEF[k]));
-  rebuildHW();
+  rebuildHW();bsApply();
 }
 let sel=null; // {type:'face'|'ceil'|'group', id}
 let scope='one';
@@ -740,7 +775,7 @@ function selTitle(){if(!sel)return['Pick a wall',''];
   if(sel.type==='ceil'){const r=ROOMS.find(r=>r.k===sel.id);return[r.n+' ceiling',r.k==='great'?'Family room, kitchen, dining and entry':'9 ft flat ceiling']}
   if(sel.type==='hw'){const h=hwGet(sel.kind,sel.zone),st=(sel.kind==='faucet'?FAUCET_STYLES:PULL_STYLES).find(x=>x[0]===h.s),fin=FINISHES.find(f=>f[1].toLowerCase()===h.c.toLowerCase());
     return[(sel.kind==='faucet'?'Faucet · ':'Cabinet pulls · ')+HWZ[sel.kind][sel.zone],`${st?st[1]:h.s} · ${fin?fin[0]:'custom finish'}`]}
-  const g=GROUPS.find(g=>g[0]===sel.id);return[g[1],'Applies everywhere in the house']}
+  const g=GROUPS.find(g=>g[0]===sel.id);return[g[1],sel.id==='backsplash'?`${(BS_STYLES.find(x=>x[0]===bsGet().s)||[,''])[1]} tile · ${(GROUTS.find(x=>x[1]===bsGet().g)||['custom'])[0]} grout`:'Applies everywhere in the house']}
 function scopesFor(){
   if(!sel)return[];
   if(sel.type==='face'){const m=FACE_META[sel.id];return m.ext?[['one','This wall'],['ext','All exterior walls']]:[['one','This wall'],['room',`All ${m.room} walls`],['all','Every interior wall']]}
@@ -809,6 +844,11 @@ function updateUI(keepInput){
   const sc=$('#scopes');sc.innerHTML='';scopesFor().forEach(([k,l])=>{const b=document.createElement('button');b.className='chip'+(k===scope?' on':'');b.textContent=l;b.onclick=()=>{scope=k;updateUI(true)};sc.appendChild(b)});
   $$('#groups .chip').forEach(c=>c.classList.toggle('on',!!(sel&&((c.dataset.g&&sel.type==='group'&&sel.id===c.dataset.g)||(c.dataset.hw&&sel.type==='hw'&&sel.kind===c.dataset.hw)))));
   $('#hwsec').hidden=!(sel&&sel.type==='hw');
+  $('#bssec').hidden=!(sel&&sel.type==='group'&&sel.id==='backsplash');
+  if(!$('#bssec').hidden){const b=bsGet(),cur=selHex();
+    const sr=$('#bsstyles');sr.innerHTML='';BS_STYLES.forEach(([id,l])=>{const x=document.createElement('button');x.className='chip'+(id===b.s?' on':'');x.textContent=l;x.onclick=()=>setBs({s:id});sr.appendChild(x)});
+    const gr=$('#bsgrout');gr.innerHTML='';GROUTS.forEach(([l,h])=>{const x=document.createElement('button');x.className='chip'+(h.toLowerCase()===b.g.toLowerCase()?' on':'');x.textContent=l;x.onclick=()=>setBs({g:h});gr.appendChild(x)});
+    const tr=$('#bstiles');tr.innerHTML='';TILES.forEach(([n,h])=>{const x=document.createElement('button');x.className=h.toLowerCase()===cur.toLowerCase()?'on':'';x.innerHTML=`<i style="background:${h}"></i>${n}`;x.onclick=()=>applyHex(h);tr.appendChild(x)})}
   if(sel&&sel.type==='hw'){const k=sel.kind,cur=hwGet(k,sel.zone);
     const zr=$('#hwzones');zr.innerHTML='';Object.entries(HWZ[k]).forEach(([z,l])=>{const b=document.createElement('button');b.className='chip'+(z===sel.zone?' on':'');b.textContent=l;b.onclick=()=>select({type:'hw',kind:k,zone:z});zr.appendChild(b)});
     const sr=$('#hwstyles');sr.innerHTML='';(k==='faucet'?FAUCET_STYLES:PULL_STYLES).forEach(([id,l])=>{const b=document.createElement('button');b.className='chip'+(id===cur.s?' on':'');b.textContent=l;b.onclick=()=>setHwStyle(id);sr.appendChild(b)});
@@ -846,6 +886,7 @@ $('#copyList').onclick=()=>{const L=['Paint list — Fenway plan'];
   roomNames().forEach(n=>{const cols=[...new Set(Object.values(FACE_META).filter(f=>!f.ext&&f.room===n).map(f=>faceHex(f.id)))];L.push(`${n}: walls ${cols.join(', ')}`)});
   L.push('Ceilings: '+[...new Set(ROOMS.map(r=>paint.ceil[r.k]||DEF.ceil))].join(', '));
   GROUPS.forEach(([id,n])=>L.push(`${n}: ${paint.groups[id]||DEF[id]}`));
+  {const b=bsGet();L.push(`Backsplash tile: ${(BS_STYLES.find(x=>x[0]===b.s)||[,b.s])[1]}, grout ${b.g}`)}
   ['faucet','handle'].forEach(k=>Object.entries(HWZ[k]).forEach(([z,l])=>{const h=hwGet(k,z),st=(k==='faucet'?FAUCET_STYLES:PULL_STYLES).find(x=>x[0]===h.s),fin=FINISHES.find(f=>f[1].toLowerCase()===h.c.toLowerCase());L.push(`${k==='faucet'?'Faucet':'Pulls'}, ${l}: ${st[1]}, ${fin?fin[0]:h.c} ${h.c}`)}));
   const ex=[...new Set(Object.values(FACE_META).filter(f=>f.ext).map(f=>faceHex(f.id)))];L.push('Exterior: '+ex.join(', '));clip2(L.join('\n'),'Paint list copied')};
 $('#loadCode').onclick=()=>{try{const j=JSON.parse($('#code').value);if(!j.paint)throw 0;pushUndo();paint=j.paint;paint.faces=paint.faces||{};paint.ceil=paint.ceil||{};paint.groups=paint.groups||{};refreshMaterials();persist();updateUI();toast('Colours loaded')}catch(e){toast('That code did not load')}};
